@@ -1,5 +1,9 @@
 // Uncomment this block to pass the first stage
-use std::{io::Write, net::TcpListener};
+use std::{
+    io::{Read, Write},
+    net::TcpListener,
+    str,
+};
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -13,7 +17,20 @@ fn main() {
         match stream {
             Ok(mut stream) => {
                 println!("accepted new connection");
-                stream.write("HTTP/1.1 200 OK\r\n\r\n".as_bytes()).unwrap();
+                let mut buf: [u8; 2048] = [0; 2048];
+                let n = stream.read(&mut buf).unwrap();
+                let req = str::from_utf8(&buf[..n]).unwrap();
+                let mut lines = req.split("\r\n");
+                let mut req_line = lines.next().unwrap().split(" ");
+                let _method = req_line.next().unwrap();
+                let path = req_line.next().unwrap();
+                println!("{}", path);
+                match path {
+                    "/" => stream.write("HTTP/1.1 200 OK\r\n\r\n".as_bytes()).unwrap(),
+                    _ => stream
+                        .write("HTTP/1.1 404 Not Found\r\n\r\n".as_bytes())
+                        .unwrap(),
+                };
             }
             Err(e) => {
                 println!("error: {}", e);
