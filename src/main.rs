@@ -1,7 +1,7 @@
 use clap::Parser;
 use std::{
     collections::HashMap,
-    fs::read_to_string,
+    fs::{self, read_to_string},
     io::{Read, Write},
     net::{TcpListener, TcpStream},
     path::Path,
@@ -43,7 +43,10 @@ fn main() {
 fn handle(mut stream: TcpStream, args: Args) {
     let req = HttpRequest::from_incoming_stream(&mut stream);
     match req.path.as_str() {
-        _ if req.path.starts_with("/files/") => file_handler(req, args),
+        _ if req.path.starts_with("/files/") && req.method == "POST" => {
+            post_file_handler(req, args)
+        }
+        _ if req.path.starts_with("/files/") && req.method == "GET" => get_file_handler(req, args),
         _ if req.path.starts_with("/echo/") => echo_handler(req),
         "/user-agent" => echo_user_agent_handler(req),
         "/" => ok_handler(),
@@ -53,7 +56,20 @@ fn handle(mut stream: TcpStream, args: Args) {
     .unwrap();
 }
 
-fn file_handler(request: HttpRequest, args: Args) -> HttpResponse {
+fn post_file_handler(request: HttpRequest, args: Args) -> HttpResponse {
+    let filename = request.path.strip_prefix("/files/").unwrap();
+    let path = Path::new(args.directory.as_str()).join(filename);
+    fs::write(path, request.body).unwrap();
+
+    HttpResponse {
+        version: "HTTP/1.1".into(),
+        response_code: "201 Created".into(),
+        headers: HashMap::new(),
+        body: "".to_owned(),
+    }
+}
+
+fn get_file_handler(request: HttpRequest, args: Args) -> HttpResponse {
     let filename = request.path.strip_prefix("/files/").unwrap();
     let path = Path::new(args.directory.as_str()).join(filename);
 
@@ -150,7 +166,7 @@ impl HttpRequest {
             );
         }
 
-        let body = ""; // TODO: read body
+        let body = lines.next().unwrap(); // TODO: read body
         Self {
             method: method.to_owned(),
             path: path.to_owned(),
