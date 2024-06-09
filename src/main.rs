@@ -1,8 +1,10 @@
+mod http;
+
 use clap::Parser;
 use std::{
     collections::HashMap,
     fs::{self, read_to_string},
-    io::{Read, Write},
+    io::Read,
     net::{TcpListener, TcpStream},
     path::Path,
     str,
@@ -20,10 +22,8 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
     println!("Logs from your program will appear here!");
 
-    // Uncomment this block to pass the first stage
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
 
     for stream in listener.incoming() {
@@ -31,7 +31,7 @@ fn main() {
             Ok(stream) => {
                 println!("accepted new connection");
                 let args_copy = args.clone();
-                std::thread::spawn(move || handle(stream, args_copy));
+                std::thread::spawn(move || handle_connection(stream, args_copy));
             }
             Err(e) => {
                 println!("error: {}", e);
@@ -40,7 +40,7 @@ fn main() {
     }
 }
 
-fn handle(mut stream: TcpStream, args: Args) {
+fn handle_connection(mut stream: TcpStream, args: Args) {
     let req = HttpRequest::from_incoming_stream(&mut stream);
     match req.path.as_str() {
         _ if req.path.starts_with("/files/") && req.method == "POST" => {
@@ -56,79 +56,63 @@ fn handle(mut stream: TcpStream, args: Args) {
     .unwrap();
 }
 
-fn post_file_handler(request: HttpRequest, args: Args) -> HttpResponse {
+fn post_file_handler(request: HttpRequest, args: Args) -> http::Response {
     let filename = request.path.strip_prefix("/files/").unwrap();
     let path = Path::new(args.directory.as_str()).join(filename);
     fs::write(path, request.body).unwrap();
 
-    HttpResponse {
-        version: "HTTP/1.1".into(),
-        response_code: "201 Created".into(),
-        headers: HashMap::new(),
-        body: "".to_owned(),
-    }
+    http::ResponseBuilder::new()
+        .code(http::STATUS_CREATED)
+        .build()
 }
 
-fn get_file_handler(request: HttpRequest, args: Args) -> HttpResponse {
+fn get_file_handler(request: HttpRequest, args: Args) -> http::Response {
     let filename = request.path.strip_prefix("/files/").unwrap();
     let path = Path::new(args.directory.as_str()).join(filename);
 
     if let Ok(body) = read_to_string(path) {
-        let mut headers = HashMap::new();
-        headers.insert("Content-Length".to_owned(), format!("{}", body.len()));
-        headers.insert(
-            "Content-Type".to_owned(),
-            "application/octet-stream".to_owned(),
-        );
-        HttpResponse {
-            version: "HTTP/1.1".into(),
-            response_code: "200 OK".into(),
-            headers,
-            body,
-        }
+        http::ResponseBuilder::new()
+            .code(http::STATUS_OK)
+            .header(http::HEADER_CONTENT_TYPE, "application/octet-stream")
+            .body(body)
     } else {
-        not_found_handler()
+        http::ResponseBuilder::new().code(http::STATUS_NOT_FOUND)
     }
+    .build()
 }
 
-fn echo_user_agent_handler(request: HttpRequest) -> HttpResponse {
-    HttpResponse::with_body(
-        request
-            .headers
-            .get("User-Agent")
-            .unwrap_or(&"".to_owned())
-            .clone(),
-    )
+fn echo_user_agent_handler(request: HttpRequest) -> http::Response {
+    http::ResponseBuilder::new()
+        .code(http::STATUS_OK)
+        .header(http::HEADER_CONTENT_TYPE, "text/plain")
+        .body(
+            request
+                .headers
+                .get("User-Agent")
+                .unwrap_or(&"".to_owned())
+                .clone(),
+        )
+        .build()
 }
 
-fn echo_handler(request: HttpRequest) -> HttpResponse {
+fn echo_handler(request: HttpRequest) -> http::Response {
     let to_echo = request.path.strip_prefix("/echo/").unwrap();
 
-    HttpResponse::with_body(to_echo.to_owned())
+    http::ResponseBuilder::new()
+        .code(http::STATUS_OK)
+        .header(http::HEADER_CONTENT_TYPE, "text/plain")
+        .body(to_echo)
+        .build()
 }
 
-fn ok_handler() -> HttpResponse {
-    let mut headers = HashMap::new();
-    headers.insert("Content-Length".to_owned(), format!("{}", 0));
-    headers.insert("Content-Type".to_owned(), "text/plain".to_owned());
-    HttpResponse {
-        version: "HTTP/1.1".into(),
-        response_code: "200 OK".into(),
-        headers,
-        body: "".into(),
-    }
+fn ok_handler() -> http::Response {
+    http::ResponseBuilder::new().code(http::STATUS_OK).build()
 }
 
-fn not_found_handler() -> HttpResponse {
-    let mut headers = HashMap::new();
-    headers.insert("Content-Length".to_owned(), format!("{}", 0));
-    headers.insert("Content-Type".to_owned(), "text/plain".to_owned());
-    HttpResponse {
-        version: "HTTP/1.1".into(),
-        response_code: "404 Not Found".into(),
-        headers,
-        body: "".into(),
-    }
+fn not_found_handler() -> http::Response {
+    http::ResponseBuilder::new()
+        .code(http::STATUS_NOT_FOUND)
+        .build()
 }
 
 #[allow(dead_code)]
@@ -174,39 +158,5 @@ impl HttpRequest {
             headers,
             body: body.to_owned(),
         }
-    }
-}
-
-struct HttpResponse {
-    version: String,
-    response_code: String,
-    headers: HashMap<String, String>,
-    body: String,
-}
-
-impl HttpResponse {
-    fn with_body(body: String) -> Self {
-        let mut headers = HashMap::new();
-        headers.insert("Content-Length".to_owned(), format!("{}", body.len()));
-        headers.insert("Content-Type".to_owned(), "text/plain".to_owned());
-        Self {
-            version: "HTTP/1.1".into(),
-            response_code: "200 OK".into(),
-            headers,
-            body,
-        }
-    }
-}
-
-impl HttpResponse {
-    fn write(self, stream: &mut TcpStream) -> Result<()> {
-        let mut response = format!("{} {}\r\n", self.version, self.response_code);
-        for (k, v) in self.headers {
-            response += format!("{}: {}\r\n", k, v).as_str();
-        }
-        response += format!("\r\n{}", self.body).as_str();
-        stream.write(response.as_bytes())?;
-
-        Ok(())
     }
 }
