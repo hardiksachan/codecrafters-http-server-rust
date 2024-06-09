@@ -57,8 +57,16 @@ fn file_handler(request: HttpRequest, args: Args) -> HttpResponse {
     let filename = request.path.strip_prefix("/files/").unwrap();
     let path = Path::new(args.directory.as_str()).join(filename);
 
-    if let Ok(lines) = read_to_string(path) {
-        HttpResponse::with_body(lines)
+    if let Ok(body) = read_to_string(path) {
+        let mut headers = HashMap::new();
+        headers.insert("Content-Length".to_owned(), format!("{}", body.len()));
+        headers.insert("Content-Type".to_owned(), "text/octet-stream".to_owned());
+        HttpResponse {
+            version: "HTTP/1.1".into(),
+            response_code: "200 OK".into(),
+            headers,
+            body,
+        }
     } else {
         not_found_handler()
     }
