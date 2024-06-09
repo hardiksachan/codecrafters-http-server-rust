@@ -54,7 +54,7 @@ fn handle(mut stream: TcpStream, args: Args) {
 }
 
 fn file_handler(request: HttpRequest, args: Args) -> HttpResponse {
-    let filename = request.path.strip_prefix("/file/").unwrap();
+    let filename = request.path.strip_prefix("/files/").unwrap();
     let path = Path::new(args.directory.as_str()).join(filename);
 
     if let Ok(lines) = read_to_string(path) {
