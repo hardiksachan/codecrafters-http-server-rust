@@ -19,23 +19,27 @@ fn main() {
 
     for stream in listener.incoming() {
         match stream {
-            Ok(mut stream) => {
+            Ok(stream) => {
                 println!("accepted new connection");
-                let req = HttpRequest::from_incoming_stream(&mut stream);
-                match req.path.as_str() {
-                    _ if req.path.starts_with("/echo/") => echo_handler(req),
-                    "/user-agent" => echo_user_agent_handler(req),
-                    "/" => ok_handler(),
-                    _ => not_found_handler(),
-                }
-                .write(&mut stream)
-                .unwrap();
+                std::thread::spawn(move || handle(stream));
             }
             Err(e) => {
                 println!("error: {}", e);
             }
         }
     }
+}
+
+fn handle(mut stream: TcpStream) {
+    let req = HttpRequest::from_incoming_stream(&mut stream);
+    match req.path.as_str() {
+        _ if req.path.starts_with("/echo/") => echo_handler(req),
+        "/user-agent" => echo_user_agent_handler(req),
+        "/" => ok_handler(),
+        _ => not_found_handler(),
+    }
+    .write(&mut stream)
+    .unwrap();
 }
 
 fn echo_user_agent_handler(request: HttpRequest) -> HttpResponse {
