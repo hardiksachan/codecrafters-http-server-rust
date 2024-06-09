@@ -1,27 +1,37 @@
-// Uncomment this block to pass the first stage
+use clap::Parser;
 use std::{
     collections::HashMap,
+    fs::read_to_string,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
+    path::Path,
     str,
 };
 
 type Error = Box<dyn std::error::Error>;
 type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Parser, Debug, Clone)]
+struct Args {
+    #[arg(long, default_value_t = {"/tmp/".to_owned()})]
+    directory: String,
+}
+
 fn main() {
+    let args = Args::parse();
+
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     println!("Logs from your program will appear here!");
 
     // Uncomment this block to pass the first stage
-    //
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
 
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 println!("accepted new connection");
-                std::thread::spawn(move || handle(stream));
+                let args_copy = args.clone();
+                std::thread::spawn(move || handle(stream, args_copy));
             }
             Err(e) => {
                 println!("error: {}", e);
@@ -30,9 +40,10 @@ fn main() {
     }
 }
 
-fn handle(mut stream: TcpStream) {
+fn handle(mut stream: TcpStream, args: Args) {
     let req = HttpRequest::from_incoming_stream(&mut stream);
     match req.path.as_str() {
+        _ if req.path.starts_with("/files/") => file_handler(req, args),
         _ if req.path.starts_with("/echo/") => echo_handler(req),
         "/user-agent" => echo_user_agent_handler(req),
         "/" => ok_handler(),
@@ -42,14 +53,31 @@ fn handle(mut stream: TcpStream) {
     .unwrap();
 }
 
+fn file_handler(request: HttpRequest, args: Args) -> HttpResponse {
+    let filename = request.path.strip_prefix("/file/").unwrap();
+    let path = Path::new(args.directory.as_str()).join(filename);
+
+    if let Ok(lines) = read_to_string(path) {
+        HttpResponse::with_body(lines)
+    } else {
+        not_found_handler()
+    }
+}
+
 fn echo_user_agent_handler(request: HttpRequest) -> HttpResponse {
-    HttpResponse::with_body(request.headers.get("User-Agent").unwrap_or(&"".to_owned()))
+    HttpResponse::with_body(
+        request
+            .headers
+            .get("User-Agent")
+            .unwrap_or(&"".to_owned())
+            .clone(),
+    )
 }
 
 fn echo_handler(request: HttpRequest) -> HttpResponse {
     let to_echo = request.path.strip_prefix("/echo/").unwrap();
 
-    HttpResponse::with_body(to_echo)
+    HttpResponse::with_body(to_echo.to_owned())
 }
 
 fn ok_handler() -> HttpResponse {
@@ -130,7 +158,7 @@ struct HttpResponse {
 }
 
 impl HttpResponse {
-    fn with_body(body: &str) -> Self {
+    fn with_body(body: String) -> Self {
         let mut headers = HashMap::new();
         headers.insert("Content-Length".to_owned(), format!("{}", body.len()));
         headers.insert("Content-Type".to_owned(), "text/plain".to_owned());
@@ -138,7 +166,7 @@ impl HttpResponse {
             version: "HTTP/1.1".into(),
             response_code: "200 OK".into(),
             headers,
-            body: body.into(),
+            body,
         }
     }
 }
