@@ -60,7 +60,10 @@ fn file_handler(request: HttpRequest, args: Args) -> HttpResponse {
     if let Ok(body) = read_to_string(path) {
         let mut headers = HashMap::new();
         headers.insert("Content-Length".to_owned(), format!("{}", body.len()));
-        headers.insert("Content-Type".to_owned(), "text/octet-stream".to_owned());
+        headers.insert(
+            "Content-Type".to_owned(),
+            "application/octet-stream".to_owned(),
+        );
         HttpResponse {
             version: "HTTP/1.1".into(),
             response_code: "200 OK".into(),
