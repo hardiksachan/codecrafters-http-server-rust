@@ -1,7 +1,8 @@
 // Uncomment this block to pass the first stage
 use std::{
+    collections::HashMap,
     io::{Read, Write},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     str,
 };
 
@@ -17,15 +18,8 @@ fn main() {
         match stream {
             Ok(mut stream) => {
                 println!("accepted new connection");
-                let mut buf: [u8; 2048] = [0; 2048];
-                let n = stream.read(&mut buf).unwrap();
-                let req = str::from_utf8(&buf[..n]).unwrap();
-                let mut lines = req.split("\r\n");
-                let mut req_line = lines.next().unwrap().split(" ");
-                let _method = req_line.next().unwrap();
-                let path = req_line.next().unwrap();
-                println!("{}", path);
-                match path {
+                let req = HttpRequest::from_incoming_stream(&mut stream);
+                match req.path.as_str() {
                     "/" => stream.write("HTTP/1.1 200 OK\r\n\r\n".as_bytes()).unwrap(),
                     _ => stream
                         .write("HTTP/1.1 404 Not Found\r\n\r\n".as_bytes())
@@ -35,6 +29,45 @@ fn main() {
             Err(e) => {
                 println!("error: {}", e);
             }
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug)]
+struct HttpRequest {
+    method: String,
+    path: String,
+    version: String,
+    headers: HashMap<String, String>,
+    body: String,
+}
+
+impl HttpRequest {
+    fn from_incoming_stream(stream: &mut TcpStream) -> Self {
+        let mut buf: [u8; 2048] = [0; 2048];
+        let n = stream.read(&mut buf).unwrap();
+        let req = str::from_utf8(&buf[..n]).unwrap();
+
+        let mut lines = req.split("\r\n");
+
+        let mut req_line = lines.next().unwrap().split(" ");
+        let method = req_line.next().unwrap();
+        let path = req_line.next().unwrap();
+        let version = req_line.next().unwrap();
+
+        let headers: HashMap<String, String> = HashMap::new();
+        while let Some(header) = lines.next() {
+            // TODO: build headers
+        }
+
+        let body = ""; // TODO: read body
+        Self {
+            method: method.to_owned(),
+            path: path.to_owned(),
+            version: version.to_owned(),
+            headers,
+            body: body.to_owned(),
         }
     }
 }
