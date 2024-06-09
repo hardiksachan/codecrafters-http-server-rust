@@ -23,7 +23,8 @@ fn main() {
                 println!("accepted new connection");
                 let req = HttpRequest::from_incoming_stream(&mut stream);
                 match req.path.as_str() {
-                    _ if req.path.starts_with("/echo/") => echo_handler(req.path),
+                    _ if req.path.starts_with("/echo/") => echo_handler(req),
+                    "/user-agent" => echo_user_agent_handler(req),
                     "/" => ok_handler(),
                     _ => not_found_handler(),
                 }
@@ -37,18 +38,14 @@ fn main() {
     }
 }
 
-fn echo_handler(path: String) -> HttpResponse {
-    let to_echo = path.strip_prefix("/echo/").unwrap();
+fn echo_user_agent_handler(request: HttpRequest) -> HttpResponse {
+    HttpResponse::with_body(request.headers.get("User-Agent").unwrap_or(&"".to_owned()))
+}
 
-    let mut headers = HashMap::new();
-    headers.insert("Content-Length".to_owned(), format!("{}", to_echo.len()));
-    headers.insert("Content-Type".to_owned(), "text/plain".to_owned());
-    HttpResponse {
-        version: "HTTP/1.1".into(),
-        response_code: "200 OK".into(),
-        headers,
-        body: to_echo.into(),
-    }
+fn echo_handler(request: HttpRequest) -> HttpResponse {
+    let to_echo = request.path.strip_prefix("/echo/").unwrap();
+
+    HttpResponse::with_body(to_echo)
 }
 
 fn ok_handler() -> HttpResponse {
@@ -98,9 +95,16 @@ impl HttpRequest {
         let path = req_line.next().unwrap();
         let version = req_line.next().unwrap();
 
-        let headers: HashMap<String, String> = HashMap::new();
-        while let Some(_header) = lines.next() {
-            // TODO: build headers
+        let mut headers: HashMap<String, String> = HashMap::new();
+        while let Some(header) = lines.next() {
+            if header == "" {
+                break;
+            }
+            let mut header = header.split(": ");
+            headers.insert(
+                header.next().unwrap().to_owned(),
+                header.next().unwrap().to_owned(),
+            );
         }
 
         let body = ""; // TODO: read body
@@ -119,6 +123,20 @@ struct HttpResponse {
     response_code: String,
     headers: HashMap<String, String>,
     body: String,
+}
+
+impl HttpResponse {
+    fn with_body(body: &str) -> Self {
+        let mut headers = HashMap::new();
+        headers.insert("Content-Length".to_owned(), format!("{}", body.len()));
+        headers.insert("Content-Type".to_owned(), "text/plain".to_owned());
+        Self {
+            version: "HTTP/1.1".into(),
+            response_code: "200 OK".into(),
+            headers,
+            body: body.into(),
+        }
+    }
 }
 
 impl HttpResponse {
